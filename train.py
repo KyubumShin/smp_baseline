@@ -68,10 +68,11 @@ def main():
     device = args.device
     best_loss = 9999999.0
     best_score = 0.0
-    train_loss, train_miou_score, train_accuracy = 0, 0, 0
-    train_f1_score, train_recall, train_precision = 0, 0, 0
+    
     for epoch in range(1, args.epoch + 1):
         model.train()
+        train_loss, train_miou_score, train_accuracy = 0, 0, 0
+        train_f1_score, train_recall, train_precision = 0, 0, 0
         pbar = tqdm(train_loader, total=len(train_loader), desc=f"Epoch{epoch} : Train")
         for i, data in enumerate(pbar):
             image, mask = data
