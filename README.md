@@ -12,6 +12,6 @@ python train.py --config-dir [CONFIG YAML FILE] --name [MODEL_NAME] [--metric]
 
 ### 구현 기능
 * wandb 연동 : train/val loss 및 각종 metric logging, output visualize 기능
-  * 구현 Metric : mean IoU, f1 score, precision, recall, Pixel Accuarcy
+  * 구현 Metric : mean IoU, f1 score, precision, recall, Pixel Accuracy
 * model save : best loss 나 metric 둘 중 하나로 선택 가능 (default : loss) --metric 입력시 mean IoU로 저장
 * loss 함수 : DiceLoss, CrossEntropy, FocalLoss, SoftCrossEntropy
