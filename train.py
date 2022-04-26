@@ -56,7 +56,7 @@ def main():
     scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=[30, 45], gamma=0.1)
 
     # Wandb init
-    wandb.init(project="seg", entity="kbum0617", name=args.name)
+    wandb.init(project="채울 곳", entity="채울 곳", name=args.name)
     wandb.config = {
         "learning_rate": args.lr,
         "encoder": args.encoder,
