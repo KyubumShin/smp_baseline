@@ -49,14 +49,14 @@ def main():
 
     model, preprocessing_fn = build_model(args)
     train_loader, val_loader = load_dataset(args, preprocessing_fn)
-
+    model.to(args.device)
     # Loss
     criterion = get_loss(args.criterion)
-    optimizer = Adam(model.parameters(), lr=args.lr)
-    scheduler = lr_scheduler.MultiStepLR(optimizer, milestones=[30, 45], gamma=0.1)
+    optimizer = AdamW(model.parameters(), lr=args.lr)
+    scheduler = lr_scheduler.CosineAnnealingLR(optimizer, T_max=100, eta_min=0.00001)
 
     # Wandb init
-    wandb.init(project="채울 곳", entity="채울 곳", name=args.name)
+    wandb.init(project="seg", entity="kbum0617", name=args.name)
     wandb.config = {
         "learning_rate": args.lr,
         "encoder": args.encoder,
@@ -68,15 +68,15 @@ def main():
     device = args.device
     best_loss = 9999999.0
     best_score = 0.0
-    
     for epoch in range(1, args.epoch + 1):
         model.train()
         train_loss, train_miou_score, train_accuracy = 0, 0, 0
         train_f1_score, train_recall, train_precision = 0, 0, 0
+        hist = np.zeros((args.classes, args.classes))
         pbar = tqdm(train_loader, total=len(train_loader), desc=f"Epoch{epoch} : Train")
         for i, data in enumerate(pbar):
             image, mask = data
-            image, mask = image.to(device), mask.to(device)
+            image, mask = image.float().to(device), mask.long().to(device)
             output = model(image)
 
             optimizer.zero_grad()
@@ -85,43 +85,52 @@ def main():
             optimizer.step()
 
             train_loss += loss.item()
-            train_miou_score += mIoU(output, mask)
-            train_accuracy += pixel_accuracy(output, mask)
+
+            hist = add_hist(hist, mask, output, n_class=args.classes)
+            acc, acc_cls, mIoU, fwavacc, IoU = label_accuracy_score(hist)
+            train_miou_score += mIoU
+            train_accuracy += acc
+
             f1_score, recall, precision = get_metrics(output, mask)
             train_f1_score += f1_score.item()
             train_recall += recall.item()
             train_precision += precision.item()
+
             pbar.set_postfix(
-                Train_Loss=f" {train_loss/(i+1):.3f}",
-                Train_Iou=f" {train_miou_score/(i+1):.3f}",
-                Train_Acc=f" {train_accuracy/(i+1):.3f}",
+                Train_Loss=f" {train_loss / (i + 1):.3f}",
+                Train_Iou=f" {train_miou_score / (i + 1):.3f}",
+                Train_Acc=f" {train_accuracy / (i + 1):.3f}",
             )
         wandb.log({
             'epoch': epoch,
-            'train/loss': train_loss/len(train_loader),
-            'train/miou_score': train_miou_score/len(train_loader),
-            'train/pixel_accuracy': train_accuracy/len(train_loader),
-            'train/train_f1_score': train_f1_score/len(train_loader),
-            'train/train_recall': train_recall/len(train_loader),
-            'train/train_precision': train_precision/len(train_loader),
+            'train/loss': train_loss / len(train_loader),
+            'train/miou_score': train_miou_score / len(train_loader),
+            'train/pixel_accuracy': train_accuracy / len(train_loader),
+            'train/train_f1_score': train_f1_score / len(train_loader),
+            'train/train_recall': train_recall / len(train_loader),
+            'train/train_precision': train_precision / len(train_loader),
         })
-
-
         scheduler.step()
+
         val_loss, val_miou_score, val_accuracy = 0, 0, 0
         val_f1_score, val_recall, val_precision = 0, 0, 0
         val_pbar = tqdm(val_loader, total=len(val_loader), desc=f"Epoch{epoch} : Val")
         with torch.no_grad():
             model.eval()
+            hist = np.zeros((args.classes, args.classes))
             for i, data in enumerate(val_pbar):
                 image, mask = data
-                image, mask = image.to(device), mask.to(device)
+                image, mask = image.float().to(device), mask.long().to(device)
                 output = model(image)
 
                 loss = criterion(output, mask)
                 val_loss += loss.item()
-                val_miou_score += mIoU(output, mask)
-                val_accuracy += pixel_accuracy(output, mask)
+
+                hist = add_hist(hist, mask, output, n_class=args.classes)
+                acc, acc_cls, mIoU, fwavacc, IoU = label_accuracy_score(hist)
+                val_miou_score += mIoU
+                val_accuracy += acc
+
                 f1_score, recall, precision = get_metrics(output, mask)
                 val_f1_score += f1_score.item()
                 val_recall += recall.item()
@@ -151,12 +160,12 @@ def main():
                     })
             wandb.log({
                 'epoch': epoch,
-                'val/loss': val_loss/len(val_loader),
-                'val/miou_score': val_miou_score/len(val_loader),
-                'val/pixel_accuracy': val_accuracy/len(val_loader),
-                'val/f1_score': val_f1_score/len(val_loader),
-                'val/recall': val_recall/len(val_loader),
-                'val/precision': val_precision/len(val_loader),
+                'val/loss': val_loss / len(val_loader),
+                'val/miou_score': val_miou_score / len(val_loader),
+                'val/pixel_accuracy': val_accuracy / len(val_loader),
+                'val/f1_score': val_f1_score / len(val_loader),
+                'val/recall': val_recall / len(val_loader),
+                'val/precision': val_precision / len(val_loader),
             })
         # save_model
         if args.metric:
@@ -172,9 +181,6 @@ def main():
         if (epoch + 1) % args.save_interval == 0:
             ckpt_fpath = os.path.join(args.save_dir, 'latest.pth')
             torch.save(model.state_dict(), ckpt_fpath)
-
-
-
 
 
 if __name__ == "__main__":

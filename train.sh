@@ -1,0 +1,1 @@
+python train.py --name effb4_Unet_CE_fix

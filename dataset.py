@@ -31,14 +31,6 @@ def get_transform():
         ),
         albu.OneOf(
             [
-                albu.IAASharpen(p=1),
-                albu.Blur(blur_limit=3, p=1),
-                albu.MotionBlur(blur_limit=3, p=1),
-            ],
-            p=0.9,
-        ),
-        albu.OneOf(
-            [
                 albu.RandomContrast(p=1),
                 albu.HueSaturationValue(p=1),
             ],
@@ -109,7 +101,6 @@ class CustomDataLoader(Dataset):
         images = cv2.imread(os.path.join(dataset_path, image_infos['file_name']))
         images = cv2.cvtColor(images, cv2.COLOR_BGR2RGB)
 
-
         if self.mode in ('train', 'val'):
             ann_ids = self.coco.getAnnIds(imgIds=image_infos['id'])
             anns = self.coco.loadAnns(ann_ids)
@@ -140,7 +131,7 @@ class CustomDataLoader(Dataset):
                 transformed = self.preprocessing(image=images, mask=masks)
                 images = transformed["image"]
                 masks = transformed["mask"]
-            return images.float(), masks.long(),
+            return images, masks
 
         elif self.mode == 'test':
             # transform -> albumentations 라이브러리 활용
@@ -150,7 +141,7 @@ class CustomDataLoader(Dataset):
             if self.preprocessing:
                 sample = self.preprocessing(image=images)
                 images = sample['image']
-            return images.float()
+            return images, image_infos
 
     def __len__(self) -> int:
         # 전체 dataset의 size를 return
@@ -164,7 +155,6 @@ def load_dataset(args, preprocessing_fn):
                                      transform=train_transform, preprocessing=preprocessing_fn)
     val_dataset = CustomDataLoader(data_dir=os.path.join(data_dir, 'val.json'), mode='val',
                                    preprocessing=preprocessing_fn)
-    train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=args.num_worker,
-                                  drop_last=True)
+    train_dataloader = DataLoader(train_dataset, batch_size=args.batch_size, shuffle=True, num_workers=args.num_worker)
     val_dataloader = DataLoader(val_dataset, batch_size=args.batch_size, num_workers=args.num_worker)
     return train_dataloader, val_dataloader

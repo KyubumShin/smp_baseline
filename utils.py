@@ -67,28 +67,46 @@ def get_metrics(output, mask):
     return f1_score, recall, precision
 
 
-def pixel_accuracy(output, mask):
+def label_accuracy_score(hist):
+    """
+    Returns accuracy score evaluation result.
+      - [acc]: overall accuracy
+      - [acc_cls]: mean accuracy
+      - [mean_iu]: mean IU
+      - [fwavacc]: fwavacc
+    """
+    acc = np.diag(hist).sum() / hist.sum()
+    with np.errstate(divide='ignore', invalid='ignore'):
+        acc_cls = np.diag(hist) / hist.sum(axis=1)
+    acc_cls = np.nanmean(acc_cls)
+
+    with np.errstate(divide='ignore', invalid='ignore'):
+        iu = np.diag(hist) / (hist.sum(axis=1) + hist.sum(axis=0) - np.diag(hist))
+    mean_iu = np.nanmean(iu)
+
+    freq = hist.sum(axis=1) / hist.sum()
+    fwavacc = (freq[freq > 0] * iu[freq > 0]).sum()
+    return acc, acc_cls, mean_iu, fwavacc, iu
+
+
+def add_hist(hist, label_trues, label_preds, n_class):
+    """
+        stack hist(confusion matrix)
+    """
     with torch.no_grad():
-        output = torch.argmax(F.softmax(output, dim=1), dim=1)
-        correct = torch.eq(output, mask).int()
-        accuracy = float(correct.sum()) / float(correct.numel())
-    return accuracy
+        label_preds = torch.argmax(label_preds, dim=1).detach().cpu().numpy()
+        label_trues = label_trues.detach().cpu().numpy()
+    for lt, lp in zip(label_trues, label_preds):
+        hist += _fast_hist(lt.flatten(), lp.flatten(), n_class)
+
+    return hist
 
 
-def mIoU(pred_mask, mask, smooth=1e-10, n_classes=11):
-    with torch.no_grad():
-        pred_mask = F.softmax(pred_mask, dim=1)
-        pred_mask = torch.argmax(pred_mask, dim=1)
-        pred_mask = pred_mask.contiguous().view(-1)
-        mask = mask.contiguous().view(-1)
 
-        iou_per_class = []
-        for clas in range(1, n_classes):  # loop per pixel class
-            true_class = pred_mask == clas
-            true_label = mask == clas
-            intersect = torch.logical_and(true_class, true_label).sum().item()
-            union = torch.logical_or(true_class, true_label).sum().item()
-            if union > 0:
-                iou = intersect / union
-                iou_per_class.append(iou)
-        return mean(iou_per_class)
+
+def _fast_hist(label_true, label_pred, n_class):
+    mask = (label_true >= 0) & (label_true < n_class)
+    hist = np.bincount(
+        n_class * label_true[mask].astype(int) +
+        label_pred[mask], minlength=n_class ** 2).reshape(n_class, n_class)
+    return hist
