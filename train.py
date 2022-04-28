@@ -53,7 +53,7 @@ def main():
     # Loss
     criterion = get_loss(args.criterion)
     optimizer = AdamW(model.parameters(), lr=args.lr)
-    scheduler = lr_scheduler.CosineAnnealingLR(optimizer, T_max=100, eta_min=0.00001)
+    scheduler = lr_scheduler.CosineAnnealingLR(optimizer, T_max=100, eta_min=1e-4)
 
     # Wandb init
     wandb.init(project="seg", entity="kbum0617", name=args.name)
@@ -76,7 +76,8 @@ def main():
         pbar = tqdm(train_loader, total=len(train_loader), desc=f"Epoch{epoch} : Train")
         for i, data in enumerate(pbar):
             image, mask = data
-            image, mask = image.float().to(device), mask.long().to(device)
+            image = torch.stack(image).float().to(device)
+            mask = torch.stack(mask).long().to(device)
             output = model(image)
 
             optimizer.zero_grad()
@@ -120,7 +121,8 @@ def main():
             hist = np.zeros((args.classes, args.classes))
             for i, data in enumerate(val_pbar):
                 image, mask = data
-                image, mask = image.float().to(device), mask.long().to(device)
+                image = torch.stack(image).float().to(device)
+                mask = torch.stack(mask).long().to(device)
                 output = model(image)
 
                 loss = criterion(output, mask)

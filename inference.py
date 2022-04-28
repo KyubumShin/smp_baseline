@@ -1,15 +1,20 @@
 import argparse
 import os
+import warnings
 
 import albumentations as A
 import numpy as np
 import pandas as pd
 import torch
+import yaml
+from munch import Munch
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from dataset import CustomDataLoader
+from dataset import CustomDataLoader, get_transform
 from model import build_model
+
+warnings.filterwarnings('ignore')
 
 
 def get_parser():
@@ -20,16 +25,32 @@ def get_parser():
     return args
 
 
-def main():
+def load_config():
     args = get_parser()
-    device = 'cuda' if torch.cuda.is_available() else 'cpu'
-    config_dir = os.path.join(args.model_dir, 'config.yaml')
+    with open(args.model_dir + '/config.yaml', 'r') as f:
+        config = yaml.safe_load(f)
 
-    model, preprocessing_fn = build_model(config_dir)
+    config = Munch(config)
+    config.model_dir = args.model_dir
+    config.data_dir = args.data_dir
+    return config
+
+
+def collate_fn(batch):
+    return tuple(zip(*batch))
+
+
+def main():
+    args = load_config()
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+    model, preprocessing_fn = build_model(args)
+    _, val_transform = get_transform(preprocessing_fn)
     test_dataset = CustomDataLoader(data_dir=os.path.join(args.data_dir, 'test.json'), mode='test',
-                                    preprocessing=preprocessing_fn)
-    test_dataloader = DataLoader(test_dataset, batch_size=args.batch_size, num_workers=args.num_worker)
-    model_dir = os.path.join(args.model_dir, 'best_loss.pth')
+                                    transform=val_transform)
+    test_dataloader = DataLoader(test_dataset, batch_size=args.batch_size, num_workers=args.num_worker,
+                                 collate_fn=collate_fn, pin_memory=True)
+    model_dir = os.path.join(args.model_dir, 'latest.pth')
     model.load_state_dict(torch.load(model_dir))
     model.to(device)
 
@@ -42,12 +63,11 @@ def main():
     with torch.no_grad():
         for i, data in enumerate(tqdm(test_dataloader, total=len(test_dataloader))):
             images, image_infos = data
-            images, image_infos = images.float().to(device)
-            output = model(images)
+            output = model(torch.stack(images).float().to(device))
             oms = torch.argmax(output.squeeze(), dim=1).detach().cpu().numpy()
 
             temp_mask = []
-            for img, mask in zip(images, oms):
+            for img, mask in zip(np.stack(images), oms):
                 transformed = transform(image=img, mask=mask)
                 mask = transformed['mask']
                 temp_mask.append(mask)
@@ -65,7 +85,8 @@ def main():
         submission = submission.append(
             {"image_id": file_name, "PredictionString": ' '.join(str(e) for e in string.tolist())},
             ignore_index=True)
-    submission.to_csv(f"./submission/{args.model_dir}.csv", index=False)
+    submission.to_csv(f"./{args.model_dir}.csv", index=False)
+
 
 if __name__ == "__main__":
     main()
